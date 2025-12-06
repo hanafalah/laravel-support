@@ -9,7 +9,9 @@ use Illuminate\Support\Facades\{
   DB
 };
 use Hanafalah\LaravelSupport\Facades\LaravelSupport;
+use Hanafalah\LaravelSupport\Supports\Data;
 use Illuminate\Support\Facades\Request;
+use ReflectionClass;
 
 /**
  * @method static self validatingParam(array $case=[])
@@ -21,7 +23,7 @@ use Illuminate\Support\Facades\Request;
  */
 trait HasRequest
 {
-  use RequestManipulation;
+  use RequestManipulation, HasArray, HasRequestData;
 
   protected $__exception = ["_token", 'button'];
   protected $__case      = [];
@@ -85,11 +87,15 @@ trait HasRequest
 
   public function transaction($callback): mixed
   {
-    DB::statement('SET FOREIGN_KEY_CHECKS = 0;');
-    DB::statement('SET GLOBAL FOREIGN_KEY_CHECKS = 0;');
-    DB::statement('SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED');
-    DB::statement('SET GLOBAL TRANSACTION ISOLATION LEVEL READ UNCOMMITTED');
-    DB::statement('SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED');
+    if (config('micro-tenant') !== null){
+      if (env('DB_DRIVER') == 'mysql'){
+        DB::statement('SET FOREIGN_KEY_CHECKS = 0;');
+        DB::statement('SET GLOBAL FOREIGN_KEY_CHECKS = 0;');
+        DB::statement('SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED');
+        DB::statement('SET GLOBAL TRANSACTION ISOLATION LEVEL READ UNCOMMITTED');
+        DB::statement('SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED');
+      }
+    }
 
     $user_connections = [];
     try {
@@ -108,8 +114,17 @@ trait HasRequest
       $result = true;
     } catch (\Throwable $e) {
       foreach ($user_connections as $connection_name) {
-        DB::connection($connection_name)->rollBack();
+        try {
+            DB::connection($connection_name)->rollBack();
+        } catch (\Throwable $ex) {
+            // kalau sudah aborted, rollback bisa gagal → biarin aja
+        }
+
+        // reset connection supaya status "aborted" hilang
+        DB::purge($connection_name);
+        DB::reconnect($connection_name);
       }
+
       LaravelSupport::catch($e);
       $result = false;
       if (Request::wantsJson()) {

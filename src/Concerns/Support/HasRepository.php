@@ -3,6 +3,7 @@
 namespace Hanafalah\LaravelSupport\Concerns\Support;
 
 use Hanafalah\LaravelSupport\Exceptions;
+use Illuminate\Support\Str;
 
 trait HasRepository
 {
@@ -31,6 +32,20 @@ trait HasRepository
     {
         $this->__file_repository = app($repository);
         return $this;
+    }
+
+
+    protected function resolveSeparator(string &$path){
+        $path = Str::replace('\\','/',$path);
+        $path = Str::replace('/',DIRECTORY_SEPARATOR,$path);
+    }
+
+
+    public function basePathResolver(string &$path){
+        $this->resolveSeparator($path);
+        if (!Str::startsWith($path, base_path())) {
+            $path = base_path($path);
+        }
     }
 
     /**
@@ -97,12 +112,13 @@ trait HasRepository
      * @param string $path The path of the directory to create.
      * @return bool True if the directory has been created successfully, false otherwise.
      */
-    protected function makeDir(string $path): bool
-    {
-        if (!$this->isDir($path)) {
-            return \mkdir($path, 0777, true);
+    protected function makeDir(string $relative_path): string{
+        try {
+            if (!$this->isDir($relative_path)) mkdir($relative_path, 0777, true);
+        } catch (\Throwable $th) {
+            //throw $th;
         }
-        return true;
+        return $relative_path;
     }
 
     /**

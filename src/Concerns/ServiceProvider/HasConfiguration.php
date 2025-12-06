@@ -114,14 +114,15 @@ trait HasConfiguration
     public function mergeConfigWith(string $alias, ?string $path = null, ?string $base_path = null): self
     {
         $base_path ??= $this->getConfigFullPath($path);
+        $this->basePathResolver($base_path);
         $local_config = include $base_path;
         $this->injectLocalConfig($alias, $local_config);
         $this->mergeConfigFrom($base_path, $alias);
         $this->initConfig();
 
-        $general_contracts = config('app.contracts', []);
-        $local_contracts   = config($alias . '.contracts', []);
-        config(['app.contracts' => $this->mergeArray($general_contracts, $local_contracts)]);
+        // $general_contracts = config('app.contracts', []);
+        // $local_contracts   = config($alias . '.contracts', []);
+        // config(['app.contracts' => $this->mergeArray($general_contracts, $local_contracts)]);
         return $this;
     }
 
@@ -166,6 +167,7 @@ trait HasConfiguration
     {
         $this->setLocalConfigName($config_name)
             ->setConfig($config_name, $this->__local_config);
+        config([$config_name.'.module_path' => $this->dir()]);
         return $this;
     }
 

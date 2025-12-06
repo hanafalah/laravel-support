@@ -4,12 +4,71 @@ namespace Hanafalah\LaravelSupport\Models\Unicode;
 
 use Hanafalah\LaravelHasProps\Concerns\HasProps;
 use Hanafalah\LaravelSupport\Models\BaseModel;
+use Hanafalah\LaravelSupport\Resources\Unicode\{ShowUnicode, ViewUnicode};
+use Hanafalah\ModuleService\Concerns\{HasService,HasPriceComponent};
+use Illuminate\Database\Eloquent\Concerns\HasUlids;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Unicode extends BaseModel
 {
-    use HasProps;
+    use HasUlids, HasProps, SoftDeletes, 
+        HasService, HasPriceComponent;
 
-    protected $table    = 'unicodes';
-    public $timestamps  = false;
-    protected $fillable = ['id', 'unicode_type', 'flag', 'name'];
+    public $incrementing = false;
+    protected $keyType = 'string';
+    protected $primaryKey = 'id';
+    protected $list = ['id', 'parent_id', 'name', 'flag', 'label', 'reference_type', 'reference_id', 'ordering', 'props'];
+
+    protected $casts = [
+        'name'   => 'string',
+        'flag'   => 'string',
+        'label'  => 'string',
+        'reference_type' => 'string',
+        'reference_id'   => 'string',
+    ];
+
+    protected static function booted(): void{
+        parent::booted();
+        static::addGlobalScope('flag',function($query){
+            $query->where('flag',(new static)->getMorphClass());
+        });
+        static::creating(function ($query) {
+            $query->flag ??= (new static)->getMorphClass();
+        });
+    }
+
+    public function isUsingService(): bool{
+        return false;
+    }
+
+    public function viewUsingRelation():array {
+        $relation = ['childs','reference'];
+        if ($this->isUsingService()){
+            $relation[] = 'service';
+        }
+        return $relation;
+    }
+
+    public function showUsingRelation():array {
+        $relation = ['childs','reference'];
+        if ($this->isUsingService()){
+            $relation[] = 'service.servicePrices.tariffComponent';
+        }
+        return $relation;
+    }
+
+    public function getViewResource(){return ViewUnicode::class;}
+    public function getShowResource(){return ShowUnicode::class;}
+
+    public function scopeLabelIn($builder,string|array $labels){
+        $labels = $this->mustArray($labels);
+        return $builder->whereIn('label', $labels);
+    }
+    public function childs(){
+        $builder = $this->hasManyModel((new static)->getMorphClass(), 'parent_id')->with('childs');
+        if ($this->isUsingService()) $builder->with('service');
+        return $builder;
+    }    
+
+    public function reference(){return $this->morphTo();}
 }

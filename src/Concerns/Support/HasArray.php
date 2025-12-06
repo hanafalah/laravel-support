@@ -84,7 +84,7 @@ trait HasArray
    * @param int|null $length The length of the slice to extract. If not provided, the rest of the array is extracted.
    * @return array The extracted slice.
    */
-  public function slice(array $array, int $offset, int $length = null): array
+  public function slice(array $array, int $offset, ?int $length = null): array
   {
     return array_slice($array, $offset, $length, true);
   }
@@ -158,7 +158,7 @@ trait HasArray
    * @param array &$array The array to remove the element from.
    * @return mixed The removed element.
    */
-  public function shift(array &$array)
+  public function arrayShift(array &$array)
   {
     return array_shift($array);
   }

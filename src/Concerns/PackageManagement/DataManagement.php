@@ -5,233 +5,348 @@ namespace Hanafalah\LaravelSupport\Concerns\PackageManagement;
 use Hanafalah\LaravelSupport\{
     Concerns\Support,
     Concerns\DatabaseConfiguration,
-    Concerns\ServiceProvider
+    Concerns\ServiceProvider,
+    Concerns\PackageManagement as Package
 };
 use Hanafalah\LaravelSupport\Concerns\Support\RequestManipulation;
+use Hanafalah\LaravelSupport\Contracts\Data\PaginateData;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Str;
 
 trait DataManagement
 {
+    private $__conditionals;
+    protected mixed $__order_by_created_at = 'desc'; //asc, desc, false
+    public static $param_logic = 'or';
+
     use RequestManipulation;
-    use AttributeModifier;
     use Support\HasRepository;
     use DatabaseConfiguration\HasModelConfiguration;
     use ServiceProvider\HasConfiguration;
-    use ORMImpersonate;
+    use Package\HasCallMethod;
 
-    protected array $__props = [];
-    protected array $__morphs = [];
-
-    /**
-     * Adds the given attributes to the class with looping the given attributes.
-     *
-     * @param array $attributes The attributes to be added.
-     * @return self Returns the SetupManagement instance.
-     */
-    public function adds(?array $attributes = null, array $parent_id = []): self
-    {
-        $attributes ??= request()->all();
-        foreach ($attributes as $key => $attribute) {
-            $attribute = $this->mergeArray($attribute, $parent_id);
-            $this->booting()->add($attribute);
+    protected function methodHandler(string $method,array $methods){
+        $arguments = $this->getCallArguments() ?? [];
+        if (isset($methods[$method])){
+            return $this->{$methods[$method]}(...$arguments);
         }
-        return $this;
+        return null;
     }
 
-    /**
-     * Adds the given attributes to the class.
-     *
-     * @param array $attributes The attributes to be added.
-     * @return void
-     */
-    public function add(?array $attributes = null): self
-    {
-        $attributes ??= request()->all();
-        if ($this->isSetSchemaThrow()) {
-            if ($this->isMethodExists('addOrChange'))
-                static::addOrChange($attributes);
-        }
-        return $this;
+    public function __callSchemaEloquent(){
+        $method = $this->getCallMethod();
+        $entity = $this->getEntity();
+        $result = $this->methodHandler($method,[
+            "export"                        => 'generalExport',
+            "show$entity"                   => 'generalShow',
+            "prepareShow$entity"            => 'generalPrepareShow',
+            "view{$entity}Paginate"         => 'generalViewPaginate',
+            "prepareView{$entity}Paginate"  => 'generalPrepareViewPaginate',
+            "view{$entity}List"             => 'generalViewList',
+            "prepareView{$entity}List"      => 'generalPrepareViewList',
+            "find{$entity}"                 => 'generalFind',
+            "prepareFind{$entity}"          => 'generalPrepareFind',
+            "delete{$entity}"               => 'generalDelete',
+            "prepareDelete{$entity}"        => 'generalPrepareDelete',
+            "store{$entity}"                => 'generalStore',
+            "storeMultiple{$entity}"        => 'generalStoreMultiple',
+            "prepareStore"                  => 'generalUniversalPrepareStore',
+            "prepareStore{$entity}"         => 'generalPrepareStore',
+            "prepareStoreMultiple{$entity}" => 'generalPrepareStoreMultiple',
+            "update{$entity}"               => 'generalUpdate',
+            "prepareUpdate{$entity}"        => 'generalPrepareUpdate',
+            Str::camel($entity)             => 'generalSchemaModel',
+        ]);
+        if (isset($result)) return $result;
     }
 
-    public function inheritenceLoad(object &$model, string $relation, ?callable $callback = null): void
-    {
-        if (isset($callback)) {
-            $relation_load = [
-                $relation => function ($query) use ($callback) {
-                    $callback($query);
-                }
-            ];
-        } else {
-            $relation_load = $relation;
-        }
-        $model->load($relation_load);
-
-        if (isset($model->{$relation}) && count($model->{$relation}) > 0) {
-            foreach ($model->{$relation} as &$relation_model) {
-                if (isset($callback)) {
-                    $this->inheritenceLoad($relation_model, $relation, function ($query) use ($callback) {
-                        $callback($query);
-                    });
-                } else {
-                    $this->inheritenceLoad($relation_model, $relation);
-                }
-            }
-        }
+    public function getEntity(): string{
+        return $this->__entity;
     }
 
     /**
-     * A description of the entire PHP function.
+     * Add conditionals to the query
      *
-     * @param datatype $paramname description
-     * @throws Some_Exception_Class description of exception
-     * @return Some_Return_Value
-     */
-    public function change(?array $attributes = null): self
-    {
-        $attributes ??= request()->all();
-        if ($this->isMethodExists('addOrChange'))
-            static::addOrChange($attributes);
-        // : static::$__class->change($attributes);
-        return $this;
-    }
-
-    public function mergeProps(array $attributes = []): array
-    {
-        if (count($this->__props) > 0) {
-            $prop_fields = [];
-            foreach ($this->__props as $key => $field) {
-                if (!is_numeric($key)) {
-                    $prop_fields[$key] = $field;
-                } else {
-                    if (array_key_exists($field, $attributes)) {
-                        $prop_fields[$field] = $attributes[$field] ?? null;
-                    }
-                }
-            }
-            $attributes[static::$__prop_column] = $this->mergeArray($attributes[static::$__prop_column] ?? [], $prop_fields);
-        }
-        return $attributes;
-    }
-
-    public function toProps(array $fields = []): self
-    {
-        $this->__props = $fields;
-        return $this;
-    }
-
-    public function setAdd(string|array $attributes, bool $overwrite = false): self
-    {
-        $add = (!$overwrite) ? $this->__add : [];
-        $this->__add = $this->mergeArray($this->mustArray($attributes), $add);
-        return $this;
-    }
-
-    public function setGuard(string|array $attributes, bool $overwrite = false): self
-    {
-        $guard = (!$overwrite) ? $this->__guard : [];
-        $this->__guard = $this->mergeArray($this->mustArray($attributes), $guard);
-        return $this;
-    }
-
-
-    /**
-     * Add the given attributes to the class with the given add and guard keys.
+     * If the given argument is callable, it will be called with the query builder as argument.
+     * If the given argument is an array, it will be passed to the `where` method on the query builder.
+     * If the given argument is a string, it will be passed to the `whereRaw` method on the query builder.
      *
-     * @param array $attributes The attributes to be added.
-     * @param array $add The keys to be added.
-     * @param array $guard The keys to be guarded.
-     * @return self Returns the SetupManagement instance.
+     * @param mixed $conditionals
+     * @return self
      */
-    protected function beforeResolve(array $attributes, ?array $add = null, ?array $guard = null): self
-    {
+    public function conditionals(mixed $conditionals): self{
+        $this->__conditionals = $this->mergeCondition($conditionals ?? []);
+        return $this;
+    }
 
-        $attributes    ??= $this->__attributes;
-        $add           ??= $this->__add;
-        $guard         ??= $this->__guard;
-        if (isset($attributes['parent_model'])) unset($attributes['parent_model'], $attributes['parent']);
-        $attributes      = $this->outsideFilter($attributes, $add, $guard, $attributes['props'] ?? []);
+    public function mergeCondition(mixed $conditionals): array{
+        $conditionals ??= [];
+        $conditionals = $this->mustArray($conditionals);
+        return $this->mergeArray($this->mustArray($this->__conditionals ?? []), $conditionals);
+    }
 
-        $parent_id       = [static::$__model->getForeignKey() => static::$__model->getKey()];
-        $self_parent_id  = ['parent_id' => static::$__model->getKey()];
-        foreach ($attributes as $key => $attribute) {
-            $this->fork(function () use ($key, $attribute, $self_parent_id, $parent_id) {
-                if ($this->inArray($key, ['childs', 'child', 'parent'])) {
-                    // add the parent id to the attribute and add it to the child table
+    protected function viewUsingRelation(): array{
+        $model = $this->usingEntity();
+        return method_exists($model,'viewUsingRelation') ? $this->usingEntity()->viewUsingRelation() : [];
+    }
 
-                    ($key == 'childs')
-                        ? $this->booting()->adds($attribute, $self_parent_id)
-                        : $this->booting()->add($this->mergeArray($attribute, $self_parent_id));
-                } else {
-                    // if the attribute is a method of the current class, call it with the given value
-                    if ($this->hasMethod($this, $key)) {
-                        $attribute = ($this->isCallable($attribute)) ? $attribute() : $attribute;
-                        $this->{$key}($attribute);
-                    } else {
-                        if (method_exists($this, 'morphs')) {
-                            $key = $this->morphs($key) ?? $key;
-                        }
-                        $class_namespace = $key;
+    protected function showUsingRelation(): array{
+        $model = $this->usingEntity();
+        return method_exists($model,'showUsingRelation') ? $this->usingEntity()->showUsingRelation() : [];
+    }
 
-                        if (\class_exists($class_namespace)) {
-                            // if the attribute is a registered service, call the service with the given value
-                            $parent_model = self::$__model;
+    public function usingEntity(): Model{
+        return $this->{$this->getEntity().'Model'}();
+    }
 
-                            $this->childSchema($class_namespace, function ($class, $parent) use ($parent_id, $parent_model, $attribute) {
-                                // call the service with the given value and add the result to the current schema
-                                if (array_is_list($attribute)) {
-                                    foreach ($attribute as $attr) {
-                                        $attr = $this->joinWithParent($attr, $parent_id, $parent_model, $parent);
-                                        $class->booting()->add($attr);
-                                    }
-                                } else {
-                                    $attr = $this->joinWithParent($attribute, $parent_id, $parent_model, $parent);
-                                    $class->add($attr);
-                                }
-                            });
-                        }
-                    }
-                }
+    public function entityData(mixed $model = null): mixed{
+        return $this->{$this->snakeEntity().'_model'} = $model;
+    }
+
+    public function viewEntityResource(callable $callback,array $options = []): array{
+        return $this->transforming($this->usingEntity()->getViewResource(),function() use ($callback){
+            return $callback();
+        },$options);
+    }
+
+    public function showEntityResource(callable $callback,array $options = []): array{
+        return $this->transforming($this->usingEntity()->getShowResource(),function() use ($callback){
+            return $callback();
+        },$options);
+    }
+
+    public function autolist(?string $response = 'list',?callable $callback = null): mixed{
+        if (isset($callback)) $this->conditionals($callback);
+        if (isset(request()->search_except_id)){
+            $this->conditionals(function($query){
+                $query->where('id','!=',request()->search_except_id);
             });
         }
+        $reference_type = request()->search_reference_type ?? null;
+        switch ($response) {
+            case 'list'     : return $this->{'view'.$this->getEntity().'List'}();break;
+            case 'paginate' : return $this->{'view'.$this->getEntity().'Paginate'}();break;
+            case 'find'     : return $this->{'find'.$this->getEntity()}();break;
+        }
+        abort(404);
+    }
+
+    public function generalExport(string $type): mixed{
+        if (!isset($this->__config_name)) throw new \Exception('No config name provided', 422);
+        $type = Str::studly($type);
+        $export_class = config($this->__config_name.'.exports.'.$type,null);
+        return new $export_class($this);
+    }
+
+    public function generalGetModelEntity(): mixed{
+        $entity = $this->snakeEntity();
+        return $this->{$entity.'_model'};
+    }
+
+    public function generalPrepareFind(?callable $callback = null, ? array $attributes = null): Model{
+        $attributes ??= request()->all();
+        $model = $this->{$this->camelEntity()}()->conditionals(isset($callback),function($query) use ($callback){
+            $this->mergeCondition($callback($query));
+        })->with($this->showUsingRelation())->first();
+        return $this->entityData($model);
+    }   
+
+    public function generalFind(? callable $callback = null): ?array{
+        $model = $this->{'prepareFind'.$this->getEntity()}($callback);
+        if (!isset($model)) return null;
+        return $this->showEntityResource(function() use ($model){
+            return $model;
+        });
+    }
+
+    public function camelEntity(): string{
+        return Str::camel($this->getEntity());
+    }
+
+    public function snakeEntity(): string{
+        return Str::snake($this->getEntity());
+    }
+
+    public function forgetTagsEntity(?string $entity = null): void{
+        $this->forgetTags($entity ?? $this->snakeEntity());
+    }
+
+    public function generalPrepareShow(? Model $model = null, ? array $attributes = null): Model{
+        $attributes ??= request()->all();
+        if (!isset($model)){
+            $valid = $attributes['id'] ?? $attributes['uuid'] ?? null;
+            if (!isset($valid)) throw new \Exception('No id or uuid provided', 422);
+            $model = $this->{$this->camelEntity()}()
+                          ->with($this->showUsingRelation())
+                          ->when(isset($attributes['id']),fn($query)   => $query->where('id', $attributes['id']))
+                          ->when(isset($attributes['uuid']),fn($query) => $query->where('uuid', $attributes['uuid']))
+                          ->firstOrFail();
+        }else{
+            $model->load($this->showUsingRelation());
+        }
+        return $this->entityData($model);
+    }   
+
+    public function generalShow(null|Collection|Model $model = null): array{
+        return $this->showEntityResource(function() use ($model){
+            return $this->{'prepareShow'.$this->getEntity()}($model);
+        });
+    }
+
+    private function preparePaginateBuilder(PaginateData $paginate_dto): LengthAwarePaginator{
+        return $this->{$this->camelEntity()}()->with($this->viewUsingRelation())->paginate(...$paginate_dto->toArray())->appends(request()->all());
+    }
+
+    public function generalPrepareViewPaginate(PaginateData $paginate_dto): LengthAwarePaginator{
+        $snake_entity = $this->snakeEntity();
+        if (isset($this->__cache['index'])){
+            $this->addSuffixCache($this->__cache['index'], $snake_entity."-index", 'paginate');
+            return $this->{$snake_entity.'_model'} = $this->cacheWhen(!$this->isSearch(), $this->__cache['index'], function () use ($paginate_dto) {
+                return $this->preparePaginateBuilder($paginate_dto);
+            });
+        }else{
+            return $this->preparePaginateBuilder($paginate_dto);
+        }
+    }
+
+    public function generalViewPaginate(?PaginateData $paginate_dto = null): array{
+        return $this->viewEntityResource(function() use ($paginate_dto){
+            return $this->{"prepareView".$this->getEntity()."Paginate"}($paginate_dto ?? $this->requestDTO(PaginateData::class));
+        }, ['rows_per_page' => [50]]);
+    }
+
+    public function generalPrepareViewList(? array $attributes = null): Collection{
+        $models = $this->{$this->camelEntity()}()->with($this->viewUsingRelation())->get();
+        return $this->entityData($models);
+    }
+
+    public function generalViewList(): array{
+        return $this->viewEntityResource(function(){
+            return $this->{'prepareView'.$this->getEntity().'List'}();
+        });
+    }
+
+    public function generalUniversalPrepareStore(mixed $dto = null): Model{
+        return $this->{'prepareStore'.$this->getEntity()}($dto ?? $this->requestDTO(config("app.contracts.{$this->getEntity()}Data",null)));
+    }
+
+    public function generalPrepareStore(mixed $dto = null): Model{
+        if (is_array($dto)) $dto = $this->requestDTO(config("app.contracts.{$this->getEntity()}Data",null));
+        $model = $this->usingEntity()->updateOrCreate([
+            'id' => $dto->id ?? null
+        ], [
+            'name' => $dto->name
+        ]);
+        $this->fillingProps($model,$dto->props);
+        $model->save();
+        return $this->entityData($model);
+    }
+
+    public function generalPrepareStoreMultiple(array $datas): Collection{
+        $collection = new Collection();
+        foreach ($datas as $data) {
+            $collection->push($this->generalPrepareStore($this->requestDTO(config("app.contracts.{$this->getEntity()}Data"),$data)));
+        }
+        return $collection;
+    }
+
+
+    public function generalStore(mixed $dto = null): array{
+        return $this->transaction(function () use ($dto) {
+            try {
+                $model = $this->{'prepareStore'.$this->getEntity()}($dto ?? $this->requestDTO(config("app.contracts.{$this->getEntity()}Data",null))); //RETURN MODEL
+            } catch (\Throwable $th) {
+                dd($th->getMessage());
+                throw $th;
+            }
+            return (isset($model))
+            ? $this->{'show'.$this->getEntity()}($model)
+            : [];
+        });
+    }
+
+    public function generalStoreMultiple(array $datas): array{
+        return $this->transaction(function () use ($datas) {
+            $results = $this->{'prepareStoreMultiple'.$this->getEntity()}($datas);
+            $results->transform(function($model){
+                return $this->{'show'.$this->getEntity()}($model);
+            });
+            return $results->toArray();
+        });
+    }
+
+    public function generalPrepareUpdate(mixed $dto): Model{
+        if (is_array($dto)) $dto = $this->requestDTO(config("app.contracts.{$this->getEntity()}UpdateData",null));
+        $model = $this->usingEntity()->updateOrCreate([
+            'id' => $dto->id
+        ], [
+            'name' => $dto->name
+        ]);
+        $this->fillingProps($model,$dto->props);
+        $model->save();
+        return $this->entityData($model);
+    }
+
+    public function generalUpdate(mixed $dto = null){
+        return $this->transaction(function () use ($dto) {
+            return $this->{'show'.$this->getEntity()}($this->{'prepareUpdate'.$this->getEntity()}($dto ?? $this->requestDTO(config("app.contracts.{$this->getEntity()}UpdateData",null))));
+        });
+    }
+
+    public function generalPrepareDelete(? array $attributes = null): bool{
+        $entity = $this->snakeEntity();
+        $attributes ??= \request()->all();
+        if (!$attributes['id']) throw new \Exception('No id provided', 422);
+        $result = $this->usingEntity()->findOrFail($attributes['id'])->delete();
+        $this->forgetTagsEntity($entity);
+        return $result;
+    }
+
+    public function generalDelete(): bool{
+        return $this->transaction(function () {
+            return $this->{'prepareDelete'.$this->getEntity()}();
+        });
+    }
+
+    public function generalSchemaModel(mixed $conditionals = null): Builder{
+        $this->booting();
+        $this->setParamLogic();
+        $model = $this->usingEntity();
+        $fillable = $model->getFillable();
+        return $model->withParameters($this->getParamLogic())
+                    ->conditionals($this->mergeCondition($conditionals ?? []))
+                    ->when(!$this->__order_by_created_at, function ($query) use ($fillable) {
+                        $query->when(in_array('name', $fillable), function ($query) {
+                            $query->orderBy('name', 'asc');
+                        });
+                    })->when(is_string($this->__order_by_created_at), function ($query) use ($fillable) {
+                        $query->when(in_array('created_at', $fillable), function ($query) {
+                            $query->orderBy('created_at', $this->__order_by_created_at);
+                        });
+                    })->when(is_array($this->__order_by_created_at), function ($query) {
+                        $query->orderBy(...$this->__order_by_created_at);
+                    });
+    }
+
+    public function setParamLogic(string $logic = 'or', bool $search_value = true, ?array $optionals = []): self
+    {
+        static::$param_logic = $logic;
+        if ($search_value && isset(request()->search_value)){
+            $model_casts = array_keys($this->usingEntity()->getCasts());
+            $searches = [];
+            foreach ($model_casts as $cast) {
+                $searches['search_'.$cast] = request()->search_value;
+            }
+            $searches['search_value'] = null;
+            request()->merge($searches,...$optionals);
+        }
         return $this;
     }
 
-    private function joinWithParent($attr, $parent_id, $parent_model, $parent)
-    {
-        $attr = $this->mergeArray($parent_id, [
-            'parent' => $parent,
-            'parent_model' => $parent_model
-        ], $attr);
-        return $attr;
-    }
-
-
-    public function morphs(string $key = null): null|string|array
-    {
-        if (!isset($key)) return $this->__morphs;
-        return $this->__morphs[$key] ?? null;
-    }
-
-    public function paginateOptions()
-    {
-        $paginate_options = compact('perPage', 'columns', 'pageName', 'page', 'total');
-        return $this->arrayValues($paginate_options);
-    }
-
-    protected function escapingVariables(callable $callback, ...$args): void
-    {
-        $model       = static::$__model;
-        $localConfig = $this->__local_config;
-        $class       = static::$__class;
-        $attributes  = $this->__attributes;
-        $entity      = $this->__entity;
-        $this->requestScope(function () use ($callback, $args) {
-            $callback(...$args);
-        });
-        static::$__model = $model;
-        $this->__local_config = $localConfig;
-        static::$__class = $class;
-        $this->__attributes = $attributes;
-        $this->__entity = $entity;
+    public function getParamLogic(): string{
+        return static::$param_logic;
     }
 }

@@ -15,6 +15,16 @@ trait HasModelConfiguration
     public static $__model;
     public static array $__models_config = [];
 
+    public function initializeHasModelConfiguration()
+    {
+        if (property_exists($this, 'timestamps') && $this->timestamps) {
+            $this->mergeFillable([
+                'created_at',
+                'updated_at'
+            ]);
+        }
+    }
+
     /**
      * This method is used to call dynamic methods that are defined in the current model.
      *
@@ -90,7 +100,7 @@ trait HasModelConfiguration
      *
      * @return Model|null The model instance or the model from the configuration.
      */
-    public function getModel(bool $new = false, string $model_name = null): ?Model
+    public function getModel(bool $new = false, ?string $model_name = null): ?Model
     {
         if (count(static::$__models_config) == 0) $this->getAppModelConfig();
         return (isset($model_name))

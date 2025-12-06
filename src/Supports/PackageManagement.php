@@ -2,6 +2,7 @@
 
 namespace Hanafalah\LaravelSupport\Supports;
 
+use Carbon\CarbonTimeZone;
 use Illuminate\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Traits\ForwardsCalls;
@@ -9,28 +10,18 @@ use Hanafalah\LaravelSupport\{
     Concerns\Support,
     Concerns\PackageManagement as Package
 };
+use Illuminate\Support\Str;
 use Hanafalah\LaravelSupport\Concerns\Support\HasCache;
-use Hanafalah\LaravelSupport\Contracts\DataManagement;
+use Hanafalah\LaravelSupport\Concerns\Support\Macroable;
+use Hanafalah\LaravelSupport\Contracts\Supports\DataManagement;
+use Illuminate\Support\Carbon;
+use stdClass;
 
 /** 
  * @method static self useSchema(string $className)
  * @method static mixed callCustomMethod()
- * @method static self add(? array $attributes=[])
- * @method static self adds(? array $attributes=[],array $parent_id=[])
- * @method static array outsideFilter(array $attributes, array ...$data)
- * @method static self beforeResolve(array $attributes, array $add, array $guard = [])
- * @method static childSchema($schema,$callback)
- * @method static self change(array $attributes=[])
- * @method static escapingVariables(callable $callback,...$args)
- * @method static self fork(callable $callback)
- * @method static self child(ca\llable $callback)
- * @method static array createInit(array $adds, array $attributes, $guards = []) 
- * @method static self pushMessage(string $message)
- * @method static array getAppModelConfig()
- * @method static self setAppModels(array $models = [])
  * @method static Model|null getModel(string $model_name = null)
  * @method static self setModel($model=null)
- * @method static bool isRecentlyCreated($model = null)
  */
 
 abstract class PackageManagement extends BasePackageManagement implements DataManagement
@@ -51,7 +42,6 @@ abstract class PackageManagement extends BasePackageManagement implements DataMa
 
     public $initialized = false;
     public $instance;
-    public static $param_logic = 'and';
     protected array $__resources = [];
     protected array $__schema_contracts = [];
 
@@ -61,33 +51,54 @@ abstract class PackageManagement extends BasePackageManagement implements DataMa
      * @param Container $app The container instance for dependency injection
      */
     public function __construct(
-        ...$args
+        // ...$args
     ) {
         $this->setLocalConfig('laravel-support');
         $this->__schema_contracts = config('app.contracts', []);
     }
 
-    public function schemaContract(string $contract)
-    {
+    protected function fillingProps(object &$model, mixed $props = [], ?array $onlies = []){
+        $props ??= [];
+        foreach ($props as $key => $prop) {
+            if (str_contains($key, 'search_') || method_exists($model, $key)) continue;
+            if ($prop instanceof Carbon) {
+                $model->{$key} = $prop->toDateTimeString();
+                continue;
+            }
+            if ($key == 'props'){
+                $this->fillingProps($model, $prop);
+            }else{
+                if (is_object($prop) && method_exists($prop, 'toArray')){
+                    $model->{$key} = new stdClass();
+                    $this->fillingProps($model->{$key}, $prop->toArray());
+                }else{
+                    if (is_array($prop)) {
+                        $model->{$key} = new stdClass();
+                        $this->fillingProps($model->{$key}, $prop);
+                    }else{
+                        if (count($onlies) > 0 && in_array($key, $onlies)){
+                            $model->{$key} = $prop;
+                        }else{
+                            $model->{$key} = $prop;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    public function schemaContract(string $contract){
+        $contract = Str::studly($contract);
+        if (!array_key_exists($contract, config('app.contracts', []))) {
+            throw new \Exception("Contract '$contract' not found in config 'app.contracts'");
+        }
         return app(config('app.contracts.' . $contract));
     }
 
-    public function myModel(?Model $model = null)
-    {
+    public function myModel(?Model $model = null){
         $model = $this->model ??= $model;
         if (isset($model)) $this->setModel($model);
         return $model;
-    }
-
-    public function setParamLogic(string $logic): self
-    {
-        static::$param_logic = $logic;
-        return $this;
-    }
-
-    public function getParamLogic(): string
-    {
-        return static::$param_logic;
     }
 
     /**
@@ -96,8 +107,7 @@ abstract class PackageManagement extends BasePackageManagement implements DataMa
      * @param string $className The class name to set.
      * @return self Returns the SetupManagement instance.
      */
-    public function useSchema(string $className): DataManagement
-    {
+    public function useSchema(string $className): DataManagement{
         $this->setClass($className);
         return $this;
     }
@@ -111,8 +121,7 @@ abstract class PackageManagement extends BasePackageManagement implements DataMa
      *
      * @return void
      */
-    public function flushTagsFrom(string|array $category, ?string $tags = null, ?string $suffix = null)
-    {
+    public function flushTagsFrom(string|array $category, ?string $tags = null, ?string $suffix = null){
         if (is_array($category)) {
             foreach ($category as $key => $cat) {
                 if (is_numeric($key)) {
@@ -131,24 +140,7 @@ abstract class PackageManagement extends BasePackageManagement implements DataMa
         }
     }
 
-    /**
-     * Call the given schema with the given callback function.
-     *
-     * @param string $schema The schema to be called.
-     * @param callable $callback The callback function to be called.
-     * @return void
-     */
-    protected function childSchema($schema, $callback)
-    {
-        $this->child(function ($parent) use ($schema, $callback) {
-            $schema = is_string($schema) ? app($schema) : $schema;
-            $schema->booting();
-            $callback($schema, $parent);
-        });
-    }
-
-    public function booting(): self
-    {
+    public function booting(): self{
         $this->instance  = new static;
         static::$__class = $this;
         static::$__model = $this->{$this->__entity . 'Model'}();
@@ -163,50 +155,7 @@ abstract class PackageManagement extends BasePackageManagement implements DataMa
      *
      * @return mixed|null
      */
-    public function callCustomMethod(): mixed
-    {
-        return ['Model', 'Configuration', 'Method'];
-    }
-
-    /**
-     * Forks the current instance of the PackageManagement class and applies the
-     * given callback to the forked instance.
-     *
-     * The callback will be called with the forked instance as the argument.
-     *
-     * After the callback is called, the forked instance will be reverted to the
-     * original instance.
-     *
-     * @param callable $callback The callback to call with the forked instance.
-     *
-     * @return self Returns the original instance.
-     */
-    public function fork(callable $callback): self
-    {
-        $this->escapingVariables(function ($class) use ($callback) {
-            $callback($class);
-        }, static::class);
-        return $this;
-    }
-
-    /**
-     * Forks the current instance of the PackageManagement class and applies the
-     * given callback to the forked instance.
-     *
-     * The callback will be called with the forked instance as the argument.
-     *
-     * After the callback is called, the forked instance will be reverted to the
-     * original instance.
-     *
-     * @param callable $callback The callback to call with the forked instance.
-     *
-     * @return self Returns the original instance.
-     */
-    public function child(callable $callback): self
-    {
-        $this->escapingVariables(function ($parent) use ($callback) {
-            $callback($parent);
-        }, self::$__class);
-        return $this;
+    public function callCustomMethod(): mixed{
+        return ['Model', 'Configuration', 'Method', 'SchemaEloquent'];
     }
 }

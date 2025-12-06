@@ -46,6 +46,7 @@ trait HasMigrationConfiguration
      */
     protected function setMigrationBasePath(string $path): self
     {
+        if ($this::class == 'Hanafalah\ModuleUser\Commands\InstallMakeCommand') dd($path,$this->dir());
         $path = $this->makeRealPath($path, $this->dir());
         $this->__migration_base_path = $this->dir() . $path;
         return $this;
@@ -88,10 +89,12 @@ trait HasMigrationConfiguration
         $lists           = [];
         $path            = $this->getMigrationPath() . $from_path;
         if (!$this->isValidPath($path)) $path = $this->dir() . $path;
-        $scan_migrations = scandir($path);
-        foreach ($scan_migrations as $file) {
-            if (!Str::endsWith($file, '.php')) continue;
-            $lists[] = Str::replace('.php', '', $file);
+        if (is_dir($path)) {
+            $scan_migrations = scandir($path);
+            foreach ($scan_migrations as $file) {
+                if (!Str::endsWith($file, '.php')) continue;
+                $lists[] = Str::replace('.php', '', $file);
+            }
         }
         return $lists;
     }
@@ -102,10 +105,12 @@ trait HasMigrationConfiguration
         $path    = $this->getMigrationPath() . $from_path;
         if (!$this->isValidPath($path)) $path = $this->dir() . $path;
         if (!$this->isDir($path)) $this->makeDir($path, 0777, true);
-        $scan_migrations = scandir($path);
-        foreach ($scan_migrations as $file) {
-            if ($file == '.' || $file == '..' || $this->isDir($path . '/' . $file)) continue;
-            $publish[$path . '/' . $file] = $this->migrationPath($target_path . '\\' . $file);
+        if (is_dir($path)) {
+            $scan_migrations = scandir($path);
+            foreach ($scan_migrations as $file) {
+                if ($file == '.' || $file == '..' || $this->isDir($path . '/' . $file)) continue;
+                $publish[$path . '/' . $file] = $this->migrationPath($target_path . '/' . $file);
+            }
         }
         return $publish;
     }

@@ -5,11 +5,25 @@ use Illuminate\Support\ServiceProvider;
 use Hanafalah\LaravelSupport\{
     Models,
     Commands,
-    Contracts
+    Contracts,
+    Supports
 };
 
 return [
-    'stub'    => [
+    "namespace"     => "Hanafalah\LaravelSupport",
+    'libs'    => [
+        'model' => 'Models',
+        'contract' => 'Contracts',
+        'schema' => 'Schemas',
+        'database' => 'Database',
+        'data' => 'Data',
+        'resource' => 'Resources',
+        'migration' => '../assets/database/migrations'
+    ],
+    'config'    => [
+        'path'  => config_path()
+    ],
+    'stub'      => [
         /*
         |--------------------------------------------------------------------------
         | Overide hanafalah/laravel-stub
@@ -21,12 +35,13 @@ return [
         */
         'open_separator'  => '{{',
         'close_separator' => '}}',
-        'path'            => stub_path(),
+        'path'            => base_path('stubs'),
     ],
     'translate' => [
         'from'  => null, //default null to autodetect,
         'to'    => 'en'
     ],
+    'service_cache' => Supports\ServiceCache::class,
     'payload_monitoring' => [
         'enabled' => true,
         'categories' => [
@@ -38,9 +53,10 @@ return [
     'cache' => [
         'enabled' => env('USING_CACHE', false)
     ],
-    'contracts'     => [
-        'response'         => Contracts\Response::class,
-        'laravel_support'  => Contracts\LaravelSupport::class
+    'app' => [
+        'contracts'     => [
+            //ADD YOUR CONTRACTS HERE
+        ],
     ],
     'database'      => [
         'scope'     => [
@@ -49,16 +65,6 @@ return [
             ]
         ],
         'models'  => [
-            'Activity'          => Models\Activity\Activity::class,
-            'ActivityStatus'    => Models\Activity\ActivityStatus::class,
-            'LogHistory'        => Models\LogHistory\LogHistory::class,
-            'ModelHasRelation'  => Models\Relation\ModelHasRelation::class,
-            'PayloadMonitoring' => Models\PayloadMonitoring\PayloadMonitoring::class,
-            'ModelHasPhone'     => Models\Phone\ModelHasPhone::class,
-            'Encoding'          => Models\Encoding\Encoding::class,
-            'ModelHasEncoding'  => Models\Encoding\ModelHasEncoding::class,
-            'ModelHasPhone'     => Models\Phone\ModelHasPhone::class,
-            'ReportSummary'     => Models\ReportSummary\ReportSummary::class
         ]
     ],
     'class_discovering' => [
@@ -73,6 +79,9 @@ return [
         //etc
     ],
     'commands' => [
-        Commands\InstallMakeCommand::class
-    ]
+        Commands\InstallMakeCommand::class,
+        Commands\AddPackageCommand::class
+    ],
+    // Add models from the desired namespaces to 'package_model_list' to keep track of providers
+    'package_model_list' => null
 ];

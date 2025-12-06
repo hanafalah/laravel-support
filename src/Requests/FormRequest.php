@@ -5,23 +5,82 @@ namespace Hanafalah\LaravelSupport\Requests;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Http\FormRequest as Request;
 use Illuminate\Validation\Rule;
-use Projects\Klinik\Models\Regional\Village;
 use Hanafalah\LaravelSupport\Concerns\DatabaseConfiguration\HasModelConfiguration;
-use Hanafalah\LaravelSupport\Concerns\Support\HasArray;
-use Hanafalah\LaravelSupport\Concerns\Support\HasRequest;
+use Hanafalah\LaravelSupport\Concerns\Support\HasRequestData;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 
 class FormRequest extends Request
 {
-    use HasModelConfiguration;
+    use HasModelConfiguration, HasRequestData;
 
-    public function callCustomMethod(): array
+    public $global_user;
+    public $global_employee;
+    public $global_user_reference;
+    public $global_workspace;
+
+    public function gate(?string $type = null){
+        $type ??= $this->getRequestName();
+    }
+
+    protected function validationRules()
     {
+        return $this->dbValidation();
+    }
+    
+    private function dbValidation(){
+        if (config('micro-tenant') !== null) {
+            config(['micro-tenant.use-db-name' => false]);
+            $validation = parent::validationRules();
+            config(['micro-tenant.use-db-name' => true]);
+            return $validation;
+        }else{
+            return parent::validationRules();
+        }
+    }
+
+    public function userAttempt(){
+        $user = Auth::user();
+        $this->global_user = $user;
+        if (isset($user)){
+            $user->load([
+                'userReference' => function($query){
+                    $query->with('role')->where('reference_type', config('module-user.reference'));
+                }
+            ]);
+            $user_reference = $user->userReference;
+            $this->global_user_reference = &$user_reference;
+            
+            if (isset($user_reference) && $user_reference->reference_type == 'Employee'){
+                $this->global_employee = $user_reference->reference;
+            }
+        }
+    }
+
+    private function getRequestName(): string{
+        $class = class_basename($this);
+        switch (true) {            
+            case Str::startsWith($class, 'Store'):
+                return 'store';
+            break;
+            case Str::startsWith($class, 'Update'):
+                return 'update';
+            break;
+            case Str::startsWith($class, 'Delete'):
+                return 'destroy';
+            break;
+            case Str::startsWith($class, 'View'):
+            default:
+                return 'index';
+            break;
+        }
+    }
+
+    public function callCustomMethod(): array{
         return ['Model'];
     }
 
-    public function __construct()
-    {
+    public function __construct(){
         parent::__construct();
         if (request()->route()) {
             $parameters = request()->route()->parameters();
@@ -35,13 +94,15 @@ class FormRequest extends Request
         request()->merge($attributes);
     }
 
-    protected function decimal($length)
-    {
+    protected function digit(){
+        return 'regex:/^\d+$/';
+    }
+
+    protected function decimal($length){
         return 'regex:/^(\d+(\.\d{1,' . $length . '})?|(\.\d{1,' . $length . '})?)$/';
     }
 
-    private function requestResolver($attributes): array
-    {
+    private function requestResolver($attributes): array{
         foreach ($attributes as $key => &$attribute) {
             if (is_array($attribute)) {
                 $attribute = $this->requestResolver($attribute);
@@ -53,8 +114,11 @@ class FormRequest extends Request
         return $attributes;
     }
 
-    private function configModel(string|object $model): Model
-    {
+    public function usingEntity(?string $model = null): Model{
+        return $this->configModel($model ?? $this->__entity);
+    }
+
+    private function configModel(string|object $model): Model{
         if (is_object($model)) return $model;
         return app(config('database.models.' . $model));
     }
@@ -69,32 +133,35 @@ class FormRequest extends Request
         return $rules;
     }
 
-    private function connectionTable($model)
-    {
+    private function connectionTable($model){
         return $model->getConnectionName() . '.' . Str::after($model->getTable(), '.');
     }
 
-    protected function inCasesValidation($cases)
-    {
+    protected function inCasesValidation($cases){
         return Rule::in(...array_column($cases, 'value'));
     }
 
-    protected function idValidation($model)
-    {
+    protected function uuidValidation($model, string $key = 'uuid'){
         $model = $this->configModel($model);
-        // if ($model instanceof Village)
-        // dd($model,$this->connectionTable($model),$model->getKeyName());
+        return Rule::exists($this->connectionTable($model), $key);
+    }
+
+    protected function idValidation($model){
+        $model = $this->configModel($model);
         return Rule::exists($this->connectionTable($model), $model->getKeyName());
     }
 
-    protected function uniqueValidation($model, ...$args)
-    {
+    protected function existsValidation($model,string $key){
         $model = $this->configModel($model);
-        return Rule::unique($this->connectionTable($model), $model->getKeyName(), ...$args);
+        return Rule::exists($this->connectionTable($model), $key);
     }
 
-    public function setRulesUUID(array $rules): array
-    {
+    protected function uniqueValidation($model, ...$args){
+        $model = $this->configModel($model);
+        return Rule::unique($model->getTableName(), ...$args);
+    }
+
+    public function setRulesUUID(array $rules): array{
         $model = $this->getModel();
         $uuid  = $model::getUuidName();
         if (isset($rules[$uuid])) {

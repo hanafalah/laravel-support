@@ -5,15 +5,18 @@ namespace Hanafalah\LaravelSupport\Models;
 use Hanafalah\LaravelSupport\Concerns as SupportConcerns;
 use Hanafalah\LaravelHasProps\Concerns as PropsConcerns;
 use Hanafalah\LaravelHasProps\Concerns\HasConfigProps;
+use Hanafalah\LaravelHasProps\Concerns\HasCurrent;
 use Illuminate\Support\Str;
-use Projects\Klinik\Models\ModelHasRelation\ModelHasRelation;
 use Hanafalah\LaravelHasProps\Models\Scopes\HasCurrentScope;
-use Hanafalah\LaravelSupport\Concerns\Support\HasSoftDeletes;
+use Hanafalah\LaravelSupport\Concerns\Support\HasCache;
+use Hanafalah\LaravelSupport\Supports\Builder;
 
 class SupportBaseModel extends AbstractModel
 {
-    use HasConfigProps;
+    use HasConfigProps, HasCache, HasCurrent;
     use SupportConcerns\Support\HasDatabase;
+    use SupportConcerns\DatabaseConfiguration\HasModelConfiguration;
+    use SupportConcerns\Support\HasConfigDatabase;
     use SupportConcerns\Support\HasRepository;
 
     const STATUS_ACTIVE     = 1;
@@ -27,34 +30,52 @@ class SupportBaseModel extends AbstractModel
     protected $keyType      = "int";
     protected $list         = [];
     protected $show         = [];
+
     protected static function booted(): void
     {
         parent::booted();
         static::addGlobalScope(new HasCurrentScope);
         static::creating(function ($query) {
-            PropsConcerns\HasCurrent::currentChecking($query);
-
+            $query->currentChecking($query);
             if (self::isSetUuid($query) && !isset($query->{$query->getUuidName()})) {
                 $query->uuid = Str::orderedUuid();
             }
         });
         static::created(function ($query) {
+            static::clearCacheModel($query);
             static::withoutEvents(function () use ($query) {
-                PropsConcerns\HasCurrent::setOld($query);
+                $query->setOld($query);
             });
         });
         static::updated(function ($query) {
+            static::clearCacheModel($query);
             static::withoutEvents(function () use ($query) {
-                if (!$query->wasRecentlyCreated && $query->isDirty('current')) PropsConcerns\HasCurrent::setOld($query);
+                if (!$query->wasRecentlyCreated && $query->isDirty('current')) $query->setOld($query);
             });
         });
         static::deleting(function ($query) {
-            if (method_exists($query, 'hasSoftDeletes') && !$query->forceDeleting) {
-                if ($query->hasSoftDeletes()) {
-                    HasSoftDeletes::softDeleting($query, static::new()->SoftDeleteModel());
-                }
-            }
         });
+    }
+
+    public function getCurrentChecking(): bool
+    {
+        return $this->current_checking;
+    }
+
+
+    private static function clearCacheModel($query){
+        $morph = Str::snake($query->getMorphClass());
+        $cacheDriver = config('cache.default');
+        if ($cacheDriver === 'redis') {
+            $query->forgetTags($morph);
+        } else {
+            $query->forgetKey($morph);
+        }
+    }
+
+    public function newEloquentBuilder($query): Builder
+    {
+        return new Builder($query);
     }
 
     protected function casts()
@@ -73,21 +94,6 @@ class SupportBaseModel extends AbstractModel
         return [];
     }
 
-    public function toViewApi()
-    {
-        if (\method_exists($this, 'getViewResource')) return (new $this->getViewResource())($this);
-
-        return [];
-    }
-
-    public function toShowApi()
-    {
-        if (\method_exists($this, 'getShowResource')) {
-            return (new $this->getShowResource())($this);
-        }
-        return [];
-    }
-
     //MUTATOR SECTION
     public static function getTableName()
     {
@@ -102,23 +108,14 @@ class SupportBaseModel extends AbstractModel
     }
     //END METHOD SECTION
 
+    public function getMorphClass(): string{
+        return \class_basename(static::class);
+    }
 
     //EIGER SECTION
-    public function activity()
-    {
-        return $this->morphOneModel('Activity', 'reference');
-    }
-    public function activities()
-    {
-        return $this->morphManyModel('Activity', 'reference');
-    }
-    public function modelHasRelation()
-    {
-        return $this->morphOneModel('ModelHasRelation', 'model');
-    }
-    public function modelHasRelations()
-    {
-        return $this->morphManyModel('ModelHasRelation', 'model');
-    }
+    public function activity(){return $this->morphOneModel('Activity', 'reference');}
+    public function activities(){return $this->morphManyModel('Activity', 'reference');}
+    public function modelHasRelation(){return $this->morphOneModel('ModelHasRelation', 'model');}
+    public function modelHasRelations(){return $this->morphManyModel('ModelHasRelation', 'model');}
     //END EIGER SECTION
 }

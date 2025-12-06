@@ -2,6 +2,7 @@
 
 namespace Hanafalah\LaravelSupport\Concerns\Support;
 
+use Hanafalah\ModuleEncoding\Concerns\HasEncoding;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Str;
 
@@ -78,22 +79,8 @@ trait HasDatabase
     return in_array(static::getUuidName(), $query->getFillable());
   }
 
-  public static function needRooting(): bool
-  {
+  public static function needRooting(): bool{
     return static::$__need_root;
-  }
-
-  public static function hasEncoding(string $flag): mixed
-  {
-    $encoding = config()->get("laravel-support.encodings.$flag");
-    if (isset($encoding)) {
-      try {
-        return self::generateCode($encoding['flag']);
-      } catch (\Throwable $th) {
-        throw new \Exception($th->getMessage() . ' : flag ' . $flag . ' di model ' . (new static)->getMorphClass());
-      }
-    }
-    return null;
   }
 
   //GETTER SECTION
@@ -183,7 +170,7 @@ trait HasDatabase
    * @param callable $callback The callback function to be executed when the validation is true.
    * @return mixed|null The result of the validation or null if the validation fails.
    */
-  public function relationValidation($relationName, $callback)
+  public function relationValidation($relationName, mixed $callback, mixed $catch = null)
   {
     $validation = $this->relationLoaded($relationName);
     if ($validation && isset($this->{$relationName})) {
@@ -194,7 +181,11 @@ trait HasDatabase
       }
       return $callback();
     } else {
-      return (Str::plural($relationName) == $relationName) ? [] : null;
+      if (isset($catch)){
+        return is_callable($catch) ? $catch() : $catch;
+      }else{
+        return (Str::plural($relationName) == $relationName) ? [] : null;
+      }
     }
 
     $validation = $this->relationLoaded($relationName);
@@ -337,7 +328,7 @@ trait HasDatabase
   public function scopeFlagIn($builder, $flags, $flagName = 'flag')
   {
     if (!is_array($flags)) $flags = [$flags];
-    return $builder->whereIn($flagName, $flags);
+    return $builder->withoutGlobalScope('flag')->whereIn($flagName, $flags);
   }
 
   /**
