@@ -36,22 +36,22 @@ class SupportBaseModel extends AbstractModel
         parent::booted();
         static::addGlobalScope(new HasCurrentScope);
         static::creating(function ($query) {
-            $query->currentChecking($query);
+            $query->setCurrent($query);
             if (self::isSetUuid($query) && !isset($query->{$query->getUuidName()})) {
                 $query->uuid = Str::orderedUuid();
             }
         });
         static::created(function ($query) {
             static::clearCacheModel($query);
-            static::withoutEvents(function () use ($query) {
-                $query->setOld($query);
-            });
+            // static::withoutEvents(function () use ($query) {
+            //     $query->setOld($query);
+            // });
         });
         static::updated(function ($query) {
             static::clearCacheModel($query);
-            static::withoutEvents(function () use ($query) {
-                if (!$query->wasRecentlyCreated && $query->isDirty('current')) $query->setOld($query);
-            });
+            // static::withoutEvents(function () use ($query) {
+            //     if (!$query->wasRecentlyCreated && $query->isDirty('current')) $query->setOld($query);
+            // });
         });
         static::deleting(function ($query) {
         });

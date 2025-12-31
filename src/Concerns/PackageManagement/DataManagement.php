@@ -20,7 +20,8 @@ trait DataManagement
 {
     private $__conditionals;
     protected mixed $__order_by_created_at = 'desc'; //asc, desc, false
-    public static $param_logic = 'or';
+    public static $param_logic = null;
+    public static $param_logic_settled = false;
 
     use RequestManipulation;
     use Support\HasRepository;
@@ -40,6 +41,7 @@ trait DataManagement
         $method = $this->getCallMethod();
         $entity = $this->getEntity();
         $result = $this->methodHandler($method,[
+            "import"                        => 'generalImport',
             "export"                        => 'generalExport',
             "show$entity"                   => 'generalShow',
             "prepareShow$entity"            => 'generalPrepareShow',
@@ -141,6 +143,13 @@ trait DataManagement
         return new $export_class($this);
     }
 
+    public function generalImport(string $type): mixed{
+        if (!isset($this->__config_name)) throw new \Exception('No config name provided', 422);
+        $type = Str::studly($type);
+        $import_class = config($this->__config_name.'.imports.'.$type,null);
+        return new $import_class($this);
+    }
+
     public function generalGetModelEntity(): mixed{
         $entity = $this->snakeEntity();
         return $this->{$entity.'_model'};
@@ -215,7 +224,7 @@ trait DataManagement
     public function generalViewPaginate(?PaginateData $paginate_dto = null): array{
         return $this->viewEntityResource(function() use ($paginate_dto){
             return $this->{"prepareView".$this->getEntity()."Paginate"}($paginate_dto ?? $this->requestDTO(PaginateData::class));
-        }, ['rows_per_page' => [50]]);
+        }, ['rows_per_page' => [request()->per_page ?? request()->perPage ?? request()->limit ?? 10]]);
     }
 
     public function generalPrepareViewList(? array $attributes = null): Collection{
@@ -259,7 +268,6 @@ trait DataManagement
             try {
                 $model = $this->{'prepareStore'.$this->getEntity()}($dto ?? $this->requestDTO(config("app.contracts.{$this->getEntity()}Data",null))); //RETURN MODEL
             } catch (\Throwable $th) {
-                dd($th->getMessage());
                 throw $th;
             }
             return (isset($model))
@@ -313,7 +321,7 @@ trait DataManagement
 
     public function generalSchemaModel(mixed $conditionals = null): Builder{
         $this->booting();
-        $this->setParamLogic();
+        if (!static::$param_logic_settled) $this->setParamLogic();
         $model = $this->usingEntity();
         $fillable = $model->getFillable();
         return $model->withParameters($this->getParamLogic())
@@ -331,18 +339,25 @@ trait DataManagement
                     });
     }
 
-    public function setParamLogic(string $logic = 'or', bool $search_value = true, ?array $optionals = []): self
+    public function setParamLogic(?string $logic = null, ?array $optionals = null): self
     {
         static::$param_logic = $logic;
-        if ($search_value && isset(request()->search_value)){
+        if (isset(request()->search_value)){
+            static::$param_logic ??= 'or';
             $model_casts = array_keys($this->usingEntity()->getCasts());
             $searches = [];
             foreach ($model_casts as $cast) {
+                if (in_array($cast,['props','created_at','updated_at','deleted_at'])) continue;
                 $searches['search_'.$cast] = request()->search_value;
             }
             $searches['search_value'] = null;
-            request()->merge($searches,...$optionals);
+            $optionals ??= [];
+            $params = array_merge($searches, $optionals);
+            request()->replace($params);
+        }else{
+            static::$param_logic ??= 'and';
         }
+        static::$param_logic_settled = true;
         return $this;
     }
 
